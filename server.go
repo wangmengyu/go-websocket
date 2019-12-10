@@ -2,7 +2,9 @@ package main
 
 import (
 	"github.com/gorilla/websocket"
+	"gowebsocket.com/impl"
 	"net/http"
+	"time"
 )
 
 //升级为websocket的工具定义
@@ -19,26 +21,39 @@ var (
   客户端发什么，服务端就返回什么
 */
 func wsHandler(w http.ResponseWriter, r *http.Request) {
-	//升级HTTP为WS，完成第一次应答,在response 加入了upgrade:websocket
-	conn, err := upgrader.Upgrade(w, r, nil)
+	//升级HTTP为WS，完成握手,在response 加入了upgrade:websocket
+	wsConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		//出错直接return
 		return
 	}
-	for {
-		//不断读取消息
-		msgType, data, err := conn.ReadMessage()
-		if err != nil {
-			conn.Close()
-			continue
-		}
-		//不断写入消息
-		if err = conn.WriteMessage(msgType, data); err != nil {
-			conn.Close()
-			continue
+
+	conn, err := impl.CreateConnection(wsConn)
+
+	//每隔一秒给客户端发送一个心跳消息
+	go func() {
+		for {
+			if beatErr := conn.WriteMessage([]byte("heart beat")); beatErr != nil {
+				return
+			}
+			time.Sleep(1 * time.Second)
 		}
 
+	}()
+
+	for {
+		data, readErr := conn.ReadMessage()
+		if readErr != nil {
+			goto ERR
+		}
+		writeErr := conn.WriteMessage(data)
+		if writeErr != nil {
+			goto ERR
+		}
 	}
+
+ERR:
+	conn.Close()
 
 }
 
